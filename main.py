@@ -1,12 +1,16 @@
 from tools.get_encounter_info import get_encounter_info
+from tools.fhir_parser import parse_encounter_data
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
+from agents.summary import summarize_patient
 from agents.investigator import exec_investigator
 from agents.decision_maker import exec_decision_maker
 from agents.reviewer import exec_reviewer
 from agents.curator import exec_curator
+import sys
+
 
 
 class PipelineState(TypedDict):
@@ -21,17 +25,19 @@ class PipelineState(TypedDict):
     final_decision: str
 
 
-def node_lucas(state: PipelineState) -> dict:
-    """Call Lucas Tool to get patient summary."""
+def node_summary(state: PipelineState) -> dict:
+    """Call Summary Tool to get patient summary."""
 
-    print(f"[Lucas] Getting Patient Summary {state['encounter_id']}...")
+    print(f"[Summary] Getting Patient Summary {state['encounter_id']}...")
 
     encounter_data = get_encounter_info(state["encounter_id"])
+    
+    parsed = parse_encounter_data(encounter_data)
+    
+    resumo = summarize_patient(parsed)
+    
+    return {"patient_summary": resumo}
 
-    # TODO: Filtrar os dados relevantes a partir do "encounter_data"
-    patient_summary = {}
-
-    return {"patient_summary": patient_summary}
 
 
 def node_investigador(state: PipelineState) -> dict:
@@ -82,28 +88,21 @@ def node_curator(state: PipelineState) -> dict:
 def build_pipeline():
     graph = StateGraph(PipelineState)
 
-    graph.add_node("lucas", node_lucas)
+    graph.add_node("summary", node_summary)
     graph.add_node("investigator", node_investigador)
     graph.add_node("decision_maker", node_decision_maker)
     graph.add_node("reviewer", node_reviewer)
-    graph.add_node("curator", node_reviewer)
+    graph.add_node("curator", node_curator)
 
-    graph.set_entry_point("lucas")
-    graph.add_edge("lucas", "investigator")
-
+    graph.set_entry_point("summary")
+    graph.add_edge("summary", "investigator")
     graph.add_edge("investigator", "decision_maker")
     graph.add_edge("investigator", "reviewer")
-
     graph.add_edge("decision_maker", "curator")
     graph.add_edge("reviewer", "curator")
-
     graph.add_edge("curator", END)
 
     return graph.compile()
-
-
-pipeline = build_pipeline()
-
 
 def evaluate_patient(encounter_id: str) -> dict:
     """
@@ -123,16 +122,17 @@ def evaluate_patient(encounter_id: str) -> dict:
 
     return {
         "encounter_id": encounter_id,
-        "resumo_paciente": result["patient_summary"],
-        "relatorio_investigacao": result["investigation_report"],
+        "patient_summary": result["patient_summary"],
+        "investigation_report": result["investigation_report"],
         "output_decisor": result["output_decision_maker"],
-        "output_revisor": result["output_reviewer"],
-        "decisao_final": result["final_decision"],
+        "output_reviewer": result["output_reviewer"],
+        "final_decision": result["final_decision"],
     }
 
 
 if __name__ == "__main__":
-    import sys
+
+    pipeline = build_pipeline()
 
     if len(sys.argv) < 2:
         print("Usage: python main.py <encounter_id>")
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("  DECISION MAKER OUTPUT ")
     print("=" * 60)
-    print(result["output_decision_maker"])
+    print(result["output_decisor"])
 
     print("\n" + "=" * 60)
     print("  REVIEWER OUTPUT ")

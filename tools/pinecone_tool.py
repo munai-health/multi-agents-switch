@@ -1,19 +1,20 @@
 from config_env import config_env
 from langchain_core.tools import tool
-from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings
 from config import PINECONE_INDEX_NAME, PINECONE_TOP_K
+from pinecone.grpc import PineconeGRPC
+from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core import Settings
+from llama_index.core import VectorStoreIndex
+from config_env import config_env
 
-embeddings = OpenAIEmbeddings(
-    api_key=config_env.OPENAI_API_KEY, model="text-embedding-3-large"
-)
-
-vector_store = PineconeVectorStore(
-    pinecone_api_key=config_env.PINECONE_KEY,
-    index_name=PINECONE_INDEX_NAME,
-    embedding=embeddings,
-)
-
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-large", api_key=config_env.OPENAI_API_KEY)    
+pinecone = PineconeGRPC(api_key=config_env.PINECONE_API_KEY)
+pinecone_index = pinecone.Index(PINECONE_INDEX_NAME)
+vector_store = PineconeVectorStore(pinecone_index=pinecone_index)
+index = VectorStoreIndex.from_vector_store(vector_store)
+retriever = index.as_retriever(similarity_top_k=3)
 
 @tool
 def search_criteria(query: str) -> str:
@@ -30,7 +31,7 @@ def search_criteria(query: str) -> str:
 
     """
 
-    docs = vector_store.similarity_search(query, k=PINECONE_TOP_K)
+    docs = retriever.retrieve(query)
 
     if not docs:
         return "No relevant information found in the guidelines for the given query."
